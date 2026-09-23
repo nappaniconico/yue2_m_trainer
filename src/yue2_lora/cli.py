@@ -53,6 +53,55 @@ def command_train(args: argparse.Namespace) -> None:
     print(f"Training output: {result}")
 
 
+def command_abc_regularizer(args: argparse.Namespace) -> None:
+    from .assets import REGULARIZER_REVISION, REGULARIZER_SHA256, _file
+    from .regularizer import build_abc_regularizer
+    from .train import _load_regularizer
+
+    config = _config(args.config)
+    path = _file(
+        config.assets.regularizer_repo,
+        REGULARIZER_REVISION,
+        "regularizer/minted_regularizer_pack.pt",
+        config.assets.directory / "training_assets",
+        REGULARIZER_SHA256,
+        args.offline,
+    )
+    print(build_abc_regularizer(Path(args.tracks), _load_regularizer(path), Path(args.output)))
+
+
+def command_compare_train(args: argparse.Namespace) -> None:
+    import gc
+
+    import torch
+
+    from .assets import sha256
+    from .comparison import compare_runs, variants
+    from .train import _latest_prepared, train
+
+    config = _config(args.config)
+    runs = variants(config)
+    assets = _assets(config, args.offline)
+    prepared = (
+        Path(args.prepared).resolve(strict=True) if args.prepared else _latest_prepared(config, sha256(assets.head))
+    )
+    for variant in runs.values():
+        resume = args.resume and (variant.train.output_directory / "resume.pt").exists()
+        train(variant, assets, prepared_path=prepared, resume=resume)
+        gc.collect()
+        torch.cuda.empty_cache()
+    compare_runs(
+        [run.train.output_directory for run in runs.values()], config.train.output_directory / "comparison.json"
+    )
+
+
+def command_compare(args: argparse.Namespace) -> None:
+    from .comparison import compare_runs
+
+    compare_runs([Path(path) for path in args.runs], Path(args.output))
+    print(f"Comparison: {args.output}")
+
+
 def _copy(source: Path, destination: Path, overwrite: bool) -> None:
     if destination.exists() and not overwrite:
         raise FileExistsError(f"Refusing to overwrite {destination}; pass --overwrite if intentional")
@@ -61,6 +110,8 @@ def _copy(source: Path, destination: Path, overwrite: bool) -> None:
 
 
 def command_install(args: argparse.Namespace) -> None:
+    from safetensors import safe_open
+
     config = _config(args.config)
     source = config.train.output_directory / "adapters"
     pattern = f"step-{args.step:06d}.comfyui.safetensors" if args.step else "step-*.comfyui.safetensors"
@@ -68,12 +119,16 @@ def command_install(args: argparse.Namespace) -> None:
     if not matches:
         raise FileNotFoundError(f"No trained adapters matching {pattern} in {source}")
     native_ar = matches[-1]
+    with safe_open(str(native_ar), framework="pt") as handle:
+        metadata = handle.metadata() or {}
+    if metadata.get("pair", "v4") != config.assets.pair:
+        raise ValueError("Checkpoint pair differs from config; refusing to install mismatched AR/NAR")
     step = native_ar.name.split(".")[0]
     files = [
         native_ar,
-        source / "nar_lora_joint_v4.comfyui.safetensors",
+        source / f"nar_lora_joint_{config.assets.pair}.comfyui.safetensors",
         source / f"{step}.fl_yue2.safetensors",
-        source / "nar_lora_joint_v4.fl_yue2.safetensors",
+        source / f"nar_lora_joint_{config.assets.pair}.fl_yue2.safetensors",
     ]
     destination = (
         Path(args.comfyui).expanduser().resolve(strict=True)
@@ -85,6 +140,9 @@ def command_install(args: argparse.Namespace) -> None:
     for path in files:
         if not path.is_file():
             raise FileNotFoundError(path)
+        if (destination / path.name).exists() and not args.overwrite:
+            raise FileExistsError(destination / path.name)
+    for path in files:
         _copy(path, destination / path.name, args.overwrite)
     print(f"Installed checkpoint {step.removeprefix('step-')} into {destination}")
     print("Native ComfyUI: load the .comfyui AR and NAR files with two Load LoRA nodes.")
@@ -97,30 +155,55 @@ def build_parser() -> argparse.ArgumentParser:
     subparsers = parser.add_subparsers(dest="command")
 
     sidecars = subparsers.add_parser("init-sidecars", help="Create configured sidecar templates next to audio")
-    sidecars.add_argument("--config", default="configs/kawaii_future_bass.toml")
+    sidecars.add_argument("--config", default="configs/examples/v9_off.toml")
     sidecars.add_argument("--instrumental", action=argparse.BooleanOptionalAction, default=True)
     sidecars.add_argument("--overwrite", action="store_true")
     sidecars.set_defaults(function=command_sidecars)
 
     download = subparsers.add_parser("download", help="Download and verify pinned model assets")
-    download.add_argument("--config", default="configs/kawaii_future_bass.toml")
+    download.add_argument("--config", default="configs/examples/v9_off.toml")
     download.set_defaults(function=command_download)
 
     prepare = subparsers.add_parser("prepare", help="Tokenize the reviewed real-audio dataset")
-    prepare.add_argument("--config", default="configs/kawaii_future_bass.toml")
+    prepare.add_argument("--config", default="configs/examples/v9_off.toml")
     prepare.add_argument("--device", default="cuda")
     prepare.add_argument("--offline", action="store_true")
     prepare.set_defaults(function=command_prepare)
 
     trainer = subparsers.add_parser("train", help="Train AR LoRA and export ComfyUI adapters")
-    trainer.add_argument("--config", default="configs/kawaii_future_bass.toml")
-    trainer.add_argument("--prepared", help="Prepared manifest; newest cache manifest is used when omitted")
+    trainer.add_argument("--config", default="configs/examples/v9_off.toml")
+    trainer.add_argument(
+        "--prepared", help="Prepared manifest; newest matching dataset/head manifest is used when omitted"
+    )
     trainer.add_argument("--resume", action="store_true")
     trainer.add_argument("--offline", action="store_true")
     trainer.set_defaults(function=command_train)
 
+    regularizer = subparsers.add_parser("build-abc-regularizer", help="Join local minted scores with pinned splits")
+    regularizer.add_argument("--config", default="configs/examples/v9_comparison.toml")
+    regularizer.add_argument(
+        "--tracks", required=True, help="Minted corpus tracks directory with score.abc/request.json"
+    )
+    regularizer.add_argument("--output", required=True)
+    regularizer.add_argument("--offline", action="store_true")
+    regularizer.set_defaults(function=command_abc_regularizer)
+
+    suite = subparsers.add_parser(
+        "compare-train", help="Train cot=off, ABC+semantic and ABC-only under common validation"
+    )
+    suite.add_argument("--config", default="configs/examples/v9_comparison.toml")
+    suite.add_argument("--prepared")
+    suite.add_argument("--offline", action="store_true")
+    suite.add_argument("--resume", action="store_true")
+    suite.set_defaults(function=command_compare_train)
+
+    report = subparsers.add_parser("compare", help="Compare matching validation signatures and checkpoint steps")
+    report.add_argument("--runs", nargs="+", required=True)
+    report.add_argument("--output", required=True)
+    report.set_defaults(function=command_compare)
+
     install = subparsers.add_parser("install-comfyui", help="Copy one checkpoint into a ComfyUI installation")
-    install.add_argument("--config", default="configs/kawaii_future_bass.toml")
+    install.add_argument("--config", default="configs/examples/v9_off.toml")
     install.add_argument("--comfyui", required=True, help="Path to the ComfyUI root")
     install.add_argument("--step", type=int, default=0, help="Checkpoint step; 0 selects the latest")
     install.add_argument("--overwrite", action="store_true")

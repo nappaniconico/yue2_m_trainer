@@ -1,0 +1,30 @@
+{
+  "v4": {
+    "revision": "f2278a2e005dc4ecc421c53a0929f62b3aeb2280",
+    "head": "tokenizer_head_joint_v4.pt",
+    "nar": "nar_lora_joint_v4.pt",
+    "head_sha256": "d23c4f757a05f031134b8471ec84245ec2338966516e1a9e26a17ff300a5f87e",
+    "nar_sha256": "df175dbf9405a8e15b2c3f8dbdcc97303575f763787f227b03029020e28102fe"
+  },
+  "v5": {
+    "revision": "e2e63d859f3af879baf1b4d4e9f22d1eeda6fde5",
+    "head": "tokenizer_head_joint_v5.safetensors",
+    "nar": "nar_lora_joint_v5.safetensors",
+    "head_sha256": "92de204de6a3e20534f3f08e0221465b96cacb937d58d968660982b8e43c9488",
+    "nar_sha256": "74b43dc61df963ad00dc22eda6df9e21d140f56cffae671d4eb8ef9e3ec8dfd4"
+  },
+  "v8": {
+    "revision": "e2e63d859f3af879baf1b4d4e9f22d1eeda6fde5",
+    "head": "tokenizer_head_joint_v8.safetensors",
+    "nar": "nar_lora_joint_v8.safetensors",
+    "head_sha256": "38d23173c340e6f35efc1814be0796e2a0044eab2aec0d752f10271902ed3bf6",
+    "nar_sha256": "e9cd74ed36d59c7a0bcb358cb08cd901ea2e5735d5d5f12696f1916df4d27456"
+  },
+  "v9": {
+    "revision": "e2e63d859f3af879baf1b4d4e9f22d1eeda6fde5",
+    "head": "tokenizer_head_joint_v9.safetensors",
+    "nar": "nar_lora_joint_v9.safetensors",
+    "head_sha256": "06440f25605c6c12c4e517ef033d7b70b8d9e961b3b06aa3848b1f8028fd7eb8",
+    "nar_sha256": "585f303da1d5252d228d1e8ac6d4c4d11d970df9297406935cc8bdafa49cfa7e"
+  }
+}

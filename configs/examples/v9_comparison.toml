@@ -1,0 +1,36 @@
+# Shared dataset / schedule for all three objectives. Existing user configs are untouched.
+[dataset]
+audio_directory = "../../YouTube_1"
+trigger = "kfbass_v1"
+default_style = "Kawaii Future Bass, sparkling synths, chopped vocal textures, sidechained drums, playful melodies"
+validation_fraction = 0.13
+split_seed = 42
+require_abc = true
+
+[assets]
+directory = "../../models"
+pair = "v9" # v4 / v5 / v8 / v9; head and NAR always move together
+
+[prepare]
+cache_directory = "../../cache/kfb_comparison"
+
+[train]
+output_directory = "../../outputs/kfb_v9_comparison"
+cot = "full"
+objective = "abc+semantic" # or abc-only (requires ABC regularizer fraction=1)
+abc_regularizer = "../../cache/minted_abc.json"
+# Fraction WITHIN generated_fraction; 0.5 gives 50% real, 25% semantic, 25% ABC.
+abc_regularizer_fraction = 0.5
+abc_loss_weight = 1.0
+audio_loss_weight = 1.0
+rank = 64
+learning_rate = 1e-4
+generated_fraction = 0.5
+sequence_tokens = 12288
+allow_truncation = false
+steps = 1500
+save_every = 200
+schedule_steps = 3000
+warmup_steps = 50
+gradient_accumulation = 2
+seed = 42

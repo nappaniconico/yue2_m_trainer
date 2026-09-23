@@ -6,8 +6,10 @@ from collections.abc import Iterable
 from pathlib import Path
 
 import torch
-from safetensors.torch import save_file
+from safetensors.torch import load_file, save_file
 from torch import nn
+
+from .assets import sha256
 
 
 def target_names(layers: int, branch: str = "ar") -> Iterable[str]:
@@ -118,9 +120,18 @@ def _kit_pairs(checkpoint: dict, layers: int, branch: str) -> dict[str, tuple[to
 
 
 def export_nar_companions(source: Path, base_model: nn.Module, output: Path) -> tuple[Path, Path]:
-    checkpoint = torch.load(source, map_location="cpu", weights_only=True)
     layers = base_model.config.num_hidden_layers
+    checkpoint = load_nar_checkpoint(source, layers)
     pairs = _kit_pairs(checkpoint, layers, "nar")
+    for name, (down, up) in pairs.items():
+        base = base_model.get_submodule(name)
+        if (
+            down.ndim != 2
+            or up.ndim != 2
+            or down.shape[0] != up.shape[1]
+            or (up.shape[0], down.shape[1]) != tuple(base.weight.shape)
+        ):
+            raise ValueError(f"NAR projection shape mismatch: {name}")
     fl_values: dict[str, torch.Tensor] = {}
     for key, (down, up) in pairs.items():
         fl_values[key + ".lora_down.weight"] = down
@@ -130,8 +141,9 @@ def export_nar_companions(source: Path, base_model: nn.Module, output: Path) -> 
         base_module = getattr(base_model, module_name)
         fl_values[module_name + ".diff"] = source_module["weight"].float() - base_module.weight.detach().cpu().float()
         fl_values[module_name + ".diff_b"] = source_module["bias"].float() - base_module.bias.detach().cpu().float()
-    fl_path = output / "nar_lora_joint_v4.fl_yue2.safetensors"
-    _save(fl_path, fl_values, {"format": "fl-yue2-lora-v1", "branch": "nar", "rank": checkpoint["rank"]})
+    metadata = {"branch": "nar", "rank": checkpoint["rank"], "source_sha256": sha256(source)}
+    fl_path = output / f"{source.stem}.fl_yue2.safetensors"
+    _save(fl_path, fl_values, {"format": "fl-yue2-lora-v1", **metadata})
 
     native_values: dict[str, torch.Tensor] = {}
     for index in range(layers):
@@ -151,6 +163,26 @@ def export_nar_companions(source: Path, base_model: nn.Module, output: Path) -> 
             native_values[key + ".lora_up.weight"] = up
     for key in ("vae2llm.diff", "vae2llm.diff_b", "llm2vae.diff", "llm2vae.diff_b"):
         native_values[key] = fl_values[key]
-    native_path = output / "nar_lora_joint_v4.comfyui.safetensors"
-    _save(native_path, native_values, {"format": "comfyui-yue2-lora-v1", "branch": "nar", "rank": checkpoint["rank"]})
+    native_path = output / f"{source.stem}.comfyui.safetensors"
+    _save(native_path, native_values, {"format": "comfyui-yue2-lora-v1", **metadata})
     return native_path, fl_path
+
+
+def load_nar_checkpoint(source: Path, layers: int) -> dict:
+    if source.suffix != ".safetensors":
+        return torch.load(source, map_location="cpu", weights_only=True)
+    state = load_file(str(source))
+    values = []
+    for name in target_names(layers, "nar"):
+        key = name.removeprefix("model.")
+        values.extend([state.pop(key + ".lora_A"), state.pop(key + ".lora_B")])
+    io = {
+        module: {key: state.pop(f"{module}.{key}") for key in ("weight", "bias")} for module in ("vae2llm", "llm2vae")
+    }
+    if state:
+        raise ValueError(f"Unexpected NAR checkpoint tensors: {sorted(state)}")
+    rank = values[0].shape[0]
+    for a, b in zip(values[::2], values[1::2], strict=True):
+        if a.ndim != 2 or b.ndim != 2 or a.shape[0] != rank or b.shape[1] != rank:
+            raise ValueError("Inconsistent NAR LoRA ranks or dimensions")
+    return {"lora": values, "io": io, "rank": rank}

@@ -24,6 +24,7 @@ class AssetConfig:
     mert_repo: str
     tokenizer_repo: str
     regularizer_repo: str
+    pair: str = "v4"
 
 
 @dataclass(frozen=True)
@@ -48,6 +49,9 @@ class TrainConfig:
     cot: str = "off"
     abc_loss_weight: float = 1.0
     audio_loss_weight: float = 1.0
+    objective: str = "abc+semantic"
+    abc_regularizer: Path | None = None
+    abc_regularizer_fraction: float = 0.0
 
 
 @dataclass(frozen=True)
@@ -95,6 +99,7 @@ def load_config(path: str | Path) -> Config:
                 assets.get("tokenizer_repo", "Mothersuperior/yue2-mothersuperior-realaudio-tokenizer-v4")
             ),
             regularizer_repo=str(assets.get("regularizer_repo", "Mothersuperior/yue2-minted-corpus")),
+            pair=str(assets.get("pair", "v4")),
         ),
         prepare=PrepareConfig(cache_directory=_path(base, prepare.get("cache_directory", "../cache/prepared"))),
         train=TrainConfig(
@@ -113,6 +118,9 @@ def load_config(path: str | Path) -> Config:
             cot=str(train.get("cot", "off")).strip(),
             abc_loss_weight=float(train.get("abc_loss_weight", 1.0)),
             audio_loss_weight=float(train.get("audio_loss_weight", 1.0)),
+            objective=str(train.get("objective", "abc+semantic")),
+            abc_regularizer=_path(base, train["abc_regularizer"]) if train.get("abc_regularizer") else None,
+            abc_regularizer_fraction=float(train.get("abc_regularizer_fraction", 0.0)),
         ),
         source=source,
     )
@@ -121,6 +129,18 @@ def load_config(path: str | Path) -> Config:
 
 
 def validate_config(config: Config) -> None:
+    if config.assets.pair not in {"v4", "v5", "v8", "v9"}:
+        raise ValueError("assets.pair must be v4, v5, v8 or v9")
+    if config.train.objective not in {"abc+semantic", "abc-only"}:
+        raise ValueError("train.objective must be abc+semantic or abc-only")
+    if config.train.objective == "abc-only" and config.train.cot == "off":
+        raise ValueError("abc-only requires cot=melody/full")
+    if not 0 <= config.train.abc_regularizer_fraction <= 1:
+        raise ValueError("train.abc_regularizer_fraction must be in [0, 1]")
+    if config.train.abc_regularizer_fraction and config.train.abc_regularizer is None:
+        raise ValueError("train.abc_regularizer is required when its fraction is nonzero")
+    if config.train.objective == "abc-only" and config.train.abc_regularizer_fraction != 1:
+        raise ValueError("abc-only requires abc_regularizer_fraction=1 to avoid semantic supervision")
     if not config.dataset.default_style:
         raise ValueError("dataset.default_style must not be empty")
     if not 0 <= config.dataset.validation_fraction < 1:
@@ -133,8 +153,6 @@ def validate_config(config: Config) -> None:
         raise ValueError("train.sequence_tokens must be at least 256")
     if config.train.cot not in {"off", "melody", "full"}:
         raise ValueError("train.cot must be off, melody or full")
-    if config.train.cot == "off" and config.dataset.require_abc:
-        raise ValueError("dataset.require_abc requires train.cot=melody or full")
     if config.train.cot != "off" and not config.dataset.require_abc:
         raise ValueError("train.cot=melody/full requires dataset.require_abc=true")
     if not math.isfinite(config.train.audio_loss_weight) or config.train.audio_loss_weight <= 0:
