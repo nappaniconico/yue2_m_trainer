@@ -7,6 +7,7 @@ from pathlib import Path
 import numpy as np
 import soundfile as sf
 import torch
+from safetensors.torch import load_file
 from scipy.signal import resample_poly
 from torch import nn
 from torch.nn import functional as F
@@ -50,8 +51,11 @@ class TokenHead(nn.Module):
 
 
 def load_head(path: Path, device: torch.device) -> TokenHead:
-    checkpoint = torch.load(path, map_location="cpu", weights_only=True)
-    state = checkpoint["model"]
+    state = (
+        load_file(str(path))
+        if path.suffix == ".safetensors"
+        else torch.load(path, map_location="cpu", weights_only=True)["model"]
+    )
     with torch.device("meta"):
         head = TokenHead()
     head.load_state_dict(state, strict=True, assign=True)
@@ -124,7 +128,7 @@ def prepare_dataset(config: Config, assets: Assets, device_name: str = "cuda") -
     verify_manifest(source)
     head_hash = sha256(assets.head)
     feature_version = fingerprint([assets.mert_revision, "layer20-kit30s-v1"])
-    result = {**source, "head_hash": head_hash, "mode": "ar", "songs": []}
+    result = {**source, "head_hash": head_hash, "pair": assets.pair, "mode": "ar", "songs": []}
     processor = AutoFeatureExtractor.from_pretrained(assets.mert, local_files_only=True)
     mert = AutoModel.from_pretrained(assets.mert, trust_remote_code=True, local_files_only=True).to(device).eval()
     mert.requires_grad_(False)

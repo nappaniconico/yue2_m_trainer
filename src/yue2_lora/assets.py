@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import hashlib
+import json
 from dataclasses import asdict, dataclass
 from pathlib import Path
 
@@ -16,6 +17,7 @@ REGULARIZER_REVISION = "5d00559c3daa5cfb7a61fbe32158c8c08f9b5f35"
 HEAD_SHA256 = "d23c4f757a05f031134b8471ec84245ec2338966516e1a9e26a17ff300a5f87e"
 NAR_SHA256 = "df175dbf9405a8e15b2c3f8dbdcc97303575f763787f227b03029020e28102fe"
 REGULARIZER_SHA256 = "bdd9b9780de46bb0752c3e3bc101869759493443c6e35b1b2d4a2c5033eadc4e"
+PAIRS = json.loads(Path(__file__).with_name("pairs.json").read_text())
 
 
 @dataclass(frozen=True)
@@ -27,6 +29,7 @@ class Assets:
     regularizer: Path
     model_revision: str = MODEL_REVISION
     mert_revision: str = MERT_REVISION
+    pair: str = "v4"
 
     def json(self) -> dict[str, str]:
         return {key: str(value) for key, value in asdict(self).items()}
@@ -83,24 +86,25 @@ def _file(repo: str, revision: str, filename: str, directory: Path, expected: st
 
 
 def resolve_assets(config: AssetConfig, offline: bool = False) -> Assets:
+    pair = PAIRS[config.pair]
     root = config.directory
     model = _snapshot(config.model_repo, MODEL_REVISION, root / "YuE2-3B", offline)
     mert = _snapshot(config.mert_repo, MERT_REVISION, root / "MERT-v2-FullSong", offline)
     training = root / "training_assets"
     head = _file(
         config.tokenizer_repo,
-        TOKENIZER_REVISION,
-        "tokenizer_head_joint_v4.pt",
+        pair["revision"],
+        pair["head"],
         training,
-        HEAD_SHA256,
+        pair["head_sha256"],
         offline,
     )
     nar = _file(
         config.tokenizer_repo,
-        TOKENIZER_REVISION,
-        "nar_lora_joint_v4.pt",
+        pair["revision"],
+        pair["nar"],
         training,
-        NAR_SHA256,
+        pair["nar_sha256"],
         offline,
     )
     regularizer = _file(
@@ -111,4 +115,4 @@ def resolve_assets(config: AssetConfig, offline: bool = False) -> Assets:
         REGULARIZER_SHA256,
         offline,
     )
-    return Assets(model=model, mert=mert, head=head, nar=nar, regularizer=regularizer)
+    return Assets(model=model, mert=mert, head=head, nar=nar, regularizer=regularizer, pair=config.pair)

@@ -16,4 +16,5 @@ cache/
 *.safetensors
 *.pt
 .*_cache
-configs
+configs/*
+!configs/examples/
