@@ -1,0 +1,46 @@
+[project]
+name = "yue2-lora"
+version = "0.1.0"
+description = "Train YuE2 genre LoRAs from real audio and export them for ComfyUI"
+readme = "README.md"
+requires-python = ">=3.12,<3.13"
+dependencies = [
+    "huggingface-hub==0.36.2",
+    "numpy==2.2.6",
+    "safetensors==0.7.0",
+    "scipy>=1.14",
+    "soundfile==0.13.1",
+    "torch==2.10.0",
+    "torchaudio==2.10.0",
+    "transformers==4.57.6",
+    "yue2-infer @ git+https://github.com/multimodal-art-projection/YuE.git@92a73cc7",
+]
+
+[project.scripts]
+yue2-lora = "yue2_lora.cli:main"
+
+[dependency-groups]
+dev = ["pytest>=8.3", "ruff>=0.11"]
+
+[[tool.uv.index]]
+name = "pytorch-cu128"
+url = "https://download.pytorch.org/whl/cu128"
+explicit = true
+
+[tool.uv.sources]
+torch = { index = "pytorch-cu128" }
+torchaudio = { index = "pytorch-cu128" }
+
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[tool.hatch.metadata]
+allow-direct-references = true
+
+[tool.ruff]
+line-length = 120
+target-version = "py312"
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
